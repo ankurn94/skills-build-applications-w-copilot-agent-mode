@@ -28,22 +28,36 @@ OctoFit Tracker is a three-tier application for a school fitness program. The st
 
 ## Implementation decisions
 
-Record your plan here before editing code.
-
-- Presentation tier decision:
-- Logic tier decision:
-- Data tier decision:
-- Activity tracking approach:
-- Team management approach:
-- Leaderboard approach:
-- Workout suggestions approach:
+- Presentation tier decision: Add shared API URL/fetch behavior in `src/api/client.ts`, route data through React components, and render loading, success, empty, and accessible error states for all four capabilities.
+- Logic tier decision: Keep Express route handlers thin and place database reads, writes, validation, aggregation, and workout selection in explicit service functions under `src/services`.
+- Data tier decision: Define Mongoose-required fields and defaults in shared User, Team, Activity, and Workout models. Seed stable demo fixtures with upserts and reconcile a seeded demo user's team membership without removing unrelated data.
+- Activity tracking approach: Validate ObjectIds and verify both referenced records exist before creating an activity. Compute `points` from `minutes`, store the submitted IDs and activity fields, and return a deliberate 4xx for malformed or missing references.
+- Team management approach: Validate the team name and mascot through Mongoose, default `members` to an empty array, and preserve submitted member IDs when creating or listing teams.
+- Leaderboard approach: Aggregate activity `points` by team, join or combine with team names, sort descending, and assign ranks from 1 in the resulting order.
+- Workout suggestions approach: Find the user by email and select workouts whose focus matches recent activity or the user's `fitnessGoal`, using seeded workout history as a fallback. Return a reason tied to the user's activity or goal and a 404 for unknown users.
 
 ## Test plan
 
-Record the commands you run and what each failure means.
+Implement and verify from the data tier outward. Use the smallest focused test after each change, then run builds as the final integration check.
 
 - Data-tier command: `npm run test:data --prefix octofit-tracker/backend`
+  - Baseline: 1 seed test passed; 4 model tests failed because User, Team, Activity, and Workout required fields and validation are incomplete.
+  - Meaning: Add Mongoose validation/defaults first. The remaining seed test passing does not cover all required model contracts.
 - API command: `npm run test:api --prefix octofit-tracker/backend`
+  - Baseline: all 4 API contract tests failed. Activity/team operations return incomplete `501` behavior, the leaderboard is empty, and workout suggestions do not match the requested user.
+  - Meaning: Implement one API capability at a time—activities and teams before aggregation/recommendations—and use 4xx responses for malformed IDs and unknown references/users.
 - Frontend command: `npm test --prefix octofit-tracker/frontend`
+  - Baseline: all 15 presentation contract tests failed because routes still render the placeholder implementation instead of API-backed loading, success, empty, and error states.
+  - Meaning: Implement the shared API client, then each route view and its accessible states; do not hide or weaken route-specific assertions.
 - Backend build command: `npm run build --prefix octofit-tracker/backend`
+  - Meaning: A pass confirms Express and TypeScript compile; a failure points to route, service, model, or type integration.
 - Frontend build command: `npm run build --prefix octofit-tracker/frontend`
+  - Meaning: A pass confirms React/TypeScript and Vite integration; a failure points to route, component, API-client, or asset compilation issues.
+
+Implementation order:
+
+1. Complete Mongoose models and seed behavior, then run the data-tier test until it passes.
+2. Implement shared API route logic and activity/team behavior, then run the API test.
+3. Implement leaderboard aggregation and workout recommendations, then rerun the API test.
+4. Implement the shared frontend API client and route states, then run the frontend test.
+5. Run both builds and address any remaining integration failures.
