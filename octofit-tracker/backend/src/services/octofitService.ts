@@ -100,11 +100,60 @@ export async function createTeam(input: unknown) {
 }
 
 export async function getLeaderboard() {
-  return [];
+  const totals = await Activity.aggregate([
+    { $group: { _id: '$team', totalPoints: { $sum: '$points' } } },
+  ]);
+
+  const teams = await Team.find({
+    _id: { $in: totals.map((entry: { _id: unknown }) => entry._id) },
+  }).lean();
+
+  const teamsById = new Map(
+    teams.map((team) => [team._id.toString(), team]),
+  );
+
+  return totals
+    .map((entry: { _id: unknown; totalPoints: number }) => {
+      const team = teamsById.get(String(entry._id));
+      return team && typeof team.name === 'string'
+        ? { teamName: team.name, totalPoints: entry.totalPoints }
+        : null;
+    })
+    .filter((entry): entry is { teamName: string; totalPoints: number } => entry !== null)
+    .sort((a, b) => b.totalPoints - a.totalPoints)
+    .map((entry, index) => ({ ...entry, rank: index + 1 }));
 }
 
-export async function suggestWorkouts(_userEmail: string) {
-  return Workout.find().limit(1).lean();
+export async function suggestWorkouts(userEmail: string) {
+  const user = await User.findOne({ email: userEmail }).lean();
+  if (!user) {
+    throw Object.assign(new Error('User not found'), { status: 404 });
+  }
+
+  const recentActivity = await Activity.findOne({ user: user._id })
+    .sort({ occurredAt: -1 })
+    .lean();
+
+  const desiredFocus = user.fitnessGoal || recentActivity?.type;
+  const matchedWorkout = desiredFocus
+    ? await Workout.findOne({ focus: desiredFocus }).lean()
+    : null;
+  const workout = matchedWorkout || (recentActivity?.type
+    ? await Workout.findOne({ focus: recentActivity.type }).lean()
+    : null)
+    || await Workout.findOne().lean();
+
+  if (!workout) {
+    return [];
+  }
+
+  const fitnessGoal = typeof user.fitnessGoal === 'string' ? user.fitnessGoal : 'fitness';
+  const recentType = typeof recentActivity?.type === 'string' ? recentActivity.type : 'activity';
+  const reason = recentActivity
+    ? `Recommended for ${fitnessGoal} based on your recent ${recentType} activity`
+    : `Recommended for your ${fitnessGoal} goal`;
+
+  return [{ ...workout, reason }];
 }
 
 export { User };
