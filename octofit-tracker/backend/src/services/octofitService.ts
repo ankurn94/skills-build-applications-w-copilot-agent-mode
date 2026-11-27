@@ -57,8 +57,46 @@ export async function listTeams() {
   return Team.find().lean();
 }
 
-export async function createTeam(_input: unknown) {
-  throw Object.assign(new Error('Team validation is not implemented yet'), { status: 501 });
+export async function createTeam(input: unknown) {
+  if (!input || typeof input !== 'object') {
+    throw Object.assign(new Error('Team details are required'), { status: 400 });
+  }
+
+  const { name, mascot, members = [] } = input as {
+    name?: unknown;
+    mascot?: unknown;
+    members?: unknown;
+  };
+
+  if (typeof name !== 'string' || !name.trim()) {
+    throw Object.assign(new Error('Team name is required'), { status: 400 });
+  }
+  if (typeof mascot !== 'string' || !mascot.trim()) {
+    throw Object.assign(new Error('Team mascot is required'), { status: 400 });
+  }
+  if (!Array.isArray(members) || members.some((member) => typeof member !== 'string')) {
+    throw Object.assign(new Error('Team members must be user IDs'), { status: 400 });
+  }
+
+  const memberIds = members as string[];
+  if (memberIds.some((memberId) => !mongoose.isValidObjectId(memberId))) {
+    throw Object.assign(new Error('Invalid team member ID'), { status: 400 });
+  }
+
+  if (memberIds.length > 0) {
+    const existingMembers = await User.find({
+      _id: { $in: memberIds },
+    }).select('_id').lean();
+    if (existingMembers.length !== new Set(memberIds).size) {
+      throw Object.assign(new Error('One or more team members were not found'), { status: 404 });
+    }
+  }
+
+  return Team.create({
+    name: name.trim(),
+    mascot: mascot.trim(),
+    members: memberIds,
+  });
 }
 
 export async function getLeaderboard() {
